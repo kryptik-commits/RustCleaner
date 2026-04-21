@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """
-RustCleaner v3 - Minimal + Robust + Production-Ready
+RustCleaner - Minimal + Robust
 Default: Interactive. PC rename forced (custom input or auto for --batch).
 Flags: --dry-run, --batch, --full-wipe
-
-Surgical trace removal for Rust, EasyAntiCheat, and Facepunch on Windows.
 """
-import argparse, ctypes, datetime, fnmatch, logging, os, random, shutil, stat, string, subprocess, sys, time, traceback, winreg
+import argparse, ctypes, datetime, fnmatch, logging, os, random, shutil, string, subprocess, sys, time, traceback, winreg
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional
 
 # ── Constants ───────────────────────────────────────────────────────
 RUST = "252490"
@@ -46,52 +44,23 @@ except: pass  # Fallback: console only
 
 # ── Helpers ─────────────────────────────────────────────────────────
 def env_path(var: str) -> Optional[Path]:
-    """Safely resolve environment variable to Path, or None if unset."""
     v = os.environ.get(var)
     return Path(v) if v else None
 
-def _handle_remove_readonly(func: Callable, path: str, exc: tuple) -> None:
-    """onerror handler for shutil.rmtree: retry after clearing readonly attribute."""
-    excval = exc[1]
-    if func in (os.rmdir, os.remove, os.unlink) and isinstance(excval, PermissionError):
-        try:
-            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
-            func(path)
-        except Exception:
-            pass  # Give up silently — logged by caller
-
 def _rm(p: Path, dry: bool, label: str = "") -> bool:
-    """Delete file or directory with robust error handling.
-    
-    - Uses onerror handler to retry locked/readonly files
-    - Logs skipped items for audit trail
-    - Respects dry-run mode with labeled output
-    """
     if not p.exists(): return False
     msg = f"{p} ({label})" if label else str(p)
     if dry:
         print(f"  [DRY] Would delete: {msg}"); logger.info(f"[DRY] {p}")
         return True
     try:
-        if p.is_dir():
-            shutil.rmtree(p, ignore_errors=False, onerror=_handle_remove_readonly)
-        else:
-            # Retry readonly files
-            try: p.unlink()
-            except PermissionError:
-                p.chmod(stat.S_IWRITE | stat.S_IREAD)
-                p.unlink()
+        (shutil.rmtree if p.is_dir() else p.unlink)(p)
         print(f"  ✓ Deleted: {p}"); logger.info(f"Deleted: {p}")
         return True
-    except PermissionError: 
-        print(f"  [!] Locked (skipped): {p}"); logger.warning(f"Locked: {p}")
-        return False
-    except Exception as e: 
-        print(f"  [!] Failed: {p} — {e}"); logger.error(f"Failed: {p} — {e}")
-        return False
+    except PermissionError: print(f"  [!] Locked: {p}"); return False
+    except Exception as e: print(f"  [!] Failed: {p} — {e}"); return False
 
 def _prompt(msg: str, interactive: bool, dry: bool) -> bool:
-    """Prompt for yes/no with validation loop. Returns True for yes."""
     if dry: return True
     if not interactive: return True
     while True:
@@ -101,11 +70,9 @@ def _prompt(msg: str, interactive: bool, dry: bool) -> bool:
         print("  [?] Answer 'y' or 'n'")
 
 def _validate_pc_name(name: str) -> bool:
-    """Validate hostname against Windows NetBIOS rules."""
     return 1 <= len(name) <= 15 and name[0] != '-' and name[-1] != '-' and all(c.isalnum() or c == '-' for c in name)
 
 def _get_pc_name(dry: bool, batch: bool) -> str:
-    """Get PC rename target: dry-run placeholder, auto-generated for batch, or user input."""
     if dry: return "DRYRUN-PC"
     if batch: return f"WIN-{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
     print("  PC rename is REQUIRED. (1-15 chars, alphanumeric/hyphens, no leading/trailing hyphens)")
@@ -114,16 +81,10 @@ def _get_pc_name(dry: bool, batch: bool) -> str:
         if _validate_pc_name(name): return name
         print("  [!] Invalid name. Follow rules above and try again.")
 
-def _section(title: str): 
-    """Print section header with visual separator."""
-    print(f"\n── {title} " + "─"*(45-len(title))); logger.info(title)
-
-def _log_status(ok: bool, msg: str): 
-    """Log operation status with emoji indicator."""
-    print(f"  {'✓' if ok else '✗'} {msg}"); logger.info(f"{'OK' if ok else 'FAIL'}: {msg}")
+def _section(title: str): print(f"\n── {title} " + "─"*(45-len(title))); logger.info(title)
+def _log_status(ok: bool, msg: str): print(f"  {'✓' if ok else '✗'} {msg}"); logger.info(f"{'OK' if ok else 'FAIL'}: {msg}")
 
 def _confirm(dry: bool, full_wipe: bool, pc_name: str) -> bool:
-    """Final confirmation gate before destructive operations."""
     if dry: return True
     print(f"\n{'='*45}")
     print(f" SUMMARY")
@@ -138,7 +99,6 @@ def _confirm(dry: bool, full_wipe: bool, pc_name: str) -> bool:
         print("  [?] Answer 'y' or 'n'")
 
 def _print_next_steps(dry: bool, full_wipe: bool, pc_name: str):
-    """Print mode-tailored next steps and reboot guidance."""
     print(f"\n{'='*45}")
     print(f" {'DRY-RUN' if dry else 'CLEANUP'} COMPLETED")
     print(f"{'='*45}")
@@ -157,7 +117,6 @@ def _print_next_steps(dry: bool, full_wipe: bool, pc_name: str):
 
 # ── Cleaners ────────────────────────────────────────────────────────
 def _kill(dry: bool):
-    """Terminate Rust/Steam/EAC processes with timeout and cooldown."""
     for proc in PROCS:
         if dry: print(f"  [DRY] Would kill: {proc}"); continue
         try:
@@ -165,10 +124,9 @@ def _kill(dry: bool):
             _log_status(r.returncode == 0, f"Killed {proc}")
         except subprocess.TimeoutExpired: _log_status(False, f"Timeout killing {proc}")
         except Exception as e: _log_status(False, f"Error killing {proc}: {e}")
-        time.sleep(0.5)  # Cooldown between kills
+        time.sleep(0.5)
 
 def _find_steam():
-    """Locate all Steam installations via default path, registry, and libraryfolders.vdf."""
     dirs = set()
     default = Path(r"C:\Program Files (x86)\Steam")
     if default.exists(): dirs.add(default)
@@ -192,7 +150,6 @@ def _find_steam():
     return list(dirs)
 
 def _clean_steam(dirs, dry: bool, interactive: bool):
-    """Clean Steam caches and Rust-specific data with aggressive targeting."""
     if not _prompt("Clean Steam caches & Rust userdata?", interactive, dry): return
     for s in dirs:
         targets = [
@@ -206,23 +163,12 @@ def _clean_steam(dirs, dry: bool, interactive: bool):
             (s/"steamapps/workshop/downloads"/RUST, "Workshop downloads"),
             (s/"logs", "Steam logs"),
             (s/"config", "Steam config"),
-            # Aggressive Rust game-internal caches (high-value)
-            (s/"steamapps/common"/RUST_DIR/"Saved"/"Config", "Rust Saved/Config"),
-            (s/"steamapps/common"/RUST_DIR/"Saved"/"Logs", "Rust Saved/Logs"),
-            (s/"steamapps/common"/RUST_DIR/"Saved"/"ScreenShots", "Rust Saved/ScreenShots"),
             (s/"steamapps/common"/RUST_DIR/"RustClient_Data"/"il2cpp_cache", "il2cpp cache"),
             (s/"steamapps/common"/RUST_DIR/"RustClient_Data"/"ScriptCache", "script cache"),
             (s/"steamapps/common"/RUST_DIR/"EasyAntiCheat", "Game EAC folder"),
         ]
         for path, label in targets: _rm(path, dry, label)
 
-        # Deep Chromium htmlcache cleaning (embedded web artifacts)
-        htmlcache = s/"htmlcache"
-        if htmlcache.exists():
-            for sub in ["Cache", "Code Cache", "GPUCache", "Service Worker"]:
-                _rm(htmlcache/sub, dry, f"htmlcache/{sub}")
-
-        # Userdata deep clean with stray Facepunch/Rust folder detection
         ud = s/"steamapps"/"userdata"
         if ud.exists():
             try:
@@ -235,14 +181,10 @@ def _clean_steam(dirs, dry: bool, interactive: bool):
                             _rm(stray, dry, "Stray Facepunch/Rust")
             except PermissionError: pass
 
-    # AppData/LocalAppData Steam + Facepunch cleanup
     for root_env in ("APPDATA","LOCALAPPDATA"):
         root = env_path(root_env)
         if not root or not root.exists(): continue
         for sub in ["Steam/htmlcache","Steam/logs","Steam/dumps"]: _rm(root/sub, dry, f"{root_env}/Steam/{sub.split('/')[-1]}")
-        # Facepunch Launcher traces (high-value addition)
-        for fp in ["FacepunchStudios", "Facepunch"]:
-            _rm(root/fp, dry, f"{root_env}/{fp}")
         ud = root/"Steam"/"userdata"
         if ud.exists():
             try:
@@ -251,7 +193,6 @@ def _clean_steam(dirs, dry: bool, interactive: bool):
             except PermissionError: pass
 
 def _clean_steam_profile_identifiers(dry: bool, interactive: bool):
-    """Clean Rust cloud save and screenshot metadata from Steam profiles."""
     if not _prompt("Clean Rust cloud/screenshot data?", interactive, dry): return
     for root_env in ("APPDATA","LOCALAPPDATA"):
         root = env_path(root_env)
@@ -260,7 +201,6 @@ def _clean_steam_profile_identifiers(dry: bool, interactive: bool):
             _rm(root/sub, dry, f"{root_env}/{sub}")
 
 def _clean_eac(dry: bool, interactive: bool):
-    """Remove EasyAntiCheat services, folders, and attempt official factory reset."""
     if not _prompt("Delete EAC services & folders?", interactive, dry): return
     for svc in ["EasyAntiCheat","EasyAntiCheat_EOS"]:
         if dry: print(f"  [DRY] Would stop/delete service: {svc}"); continue
@@ -281,18 +221,17 @@ def _clean_eac(dry: bool, interactive: bool):
         (Path(r"C:\Program Files (x86)\EasyAntiCheat_EOS"), "EAC ProgramFiles"),
         (env_path("APPDATA") / "EasyAntiCheat" if env_path("APPDATA") else None, "EAC AppData"),
         (env_path("LOCALAPPDATA") / "EasyAntiCheat" if env_path("LOCALAPPDATA") else None, "EAC LocalAppData"),
-        (Path(os.environ.get("PROGRAMDATA","C:\ProgramData")) / "EasyAntiCheat", "EAC ProgramData"),
+        (Path(os.environ.get("PROGRAMDATA",r"C:\ProgramData")) / "EasyAntiCheat", "EAC ProgramData"),
         (Path(r"C:\Users\Public\EasyAntiCheat"), "EAC Public"),
-        (Path(os.environ.get("WINDIR","C:\Windows")) / "Temp/EasyAntiCheat", "EAC Temp"),
+        (Path(os.environ.get("WINDIR",r"C:\Windows")) / "Temp/EasyAntiCheat", "EAC Temp"),
     ]
     for p, label in eac_paths:
         if p: _rm(p, dry, label)
 
 def _clean_temp(dry: bool, interactive: bool):
-    """Clean temp directories and Prefetch entries matching Rust/EAC patterns."""
     if not _prompt("Clean temp/prefetch files?", interactive, dry): return
-    pats = [f"*{x}*" for x in ["rust","steam","easyanticheat","eac","facepunch",RUST]]
-    temp_dirs = [env_path("TEMP"), env_path("TMP"), env_path("LOCALAPPDATA")/"Temp" if env_path("LOCALAPPDATA") else None, Path(os.environ.get("WINDIR","C:\Windows"))/"Temp"]
+    pats = [f"*{x}*" for x in ["rust","steam","easyanticheat","facepunch",RUST]]
+    temp_dirs = [env_path("TEMP"), env_path("TMP"), env_path("LOCALAPPDATA")/"Temp" if env_path("LOCALAPPDATA") else None, Path(os.environ.get("WINDIR",r"C:\Windows"))/"Temp"]
     for td in [d for d in temp_dirs if d]:
         if not td.exists(): continue
         try:
@@ -301,75 +240,16 @@ def _clean_temp(dry: bool, interactive: bool):
         except PermissionError: pass
     pf = Path(r"C:\Windows\Prefetch")
     if pf.exists():
-        for pat in ["*Rust*","*Steam*","*EasyAntiCheat*"]:
-            for m in pf.glob(pat): _rm(m, dry, f"Prefetch/{m.name}")
-    # Note: Deep windir.rglob scan removed per request (slow, low-value)
-
-def _clean_event_logs(dry: bool, interactive: bool):
-    """Clear Windows Event Log entries containing Rust/EAC/Facepunch keywords."""
-    if not _prompt("Clean Windows Event Logs (Rust/EAC entries)?", interactive, dry): return
-    logs = ["Application", "System"]
-    keywords = ["Rust", "EasyAntiCheat", "Facepunch"]
-    for log in logs:
-        for kw in keywords:
-            if dry:
-                print(f"  [DRY] Would clear '{kw}' entries from {log} log")
-                continue
-            try:
-                # wevtutil query to filter by keyword in message content
-                cmd = ["wevtutil","qe",log,f"/q:*[System[(TimeCreated[@SystemTime])]]","/rd:true","/c:1000"]
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                # Simple heuristic: if keyword appears in output, clear the log
-                if kw.lower() in r.stdout.lower():
-                    r2 = subprocess.run(["wevtutil","cl",log], capture_output=True, timeout=30)
-                    _log_status(r2.returncode == 0, f"Cleared {log} log (contained '{kw}')")
-                else:
-                    print(f"  ℹ No '{kw}' entries found in {log} log")
-            except Exception as e: print(f"  [!] Event log error: {e}")
-
-def _clean_hosts_file(dry: bool, interactive: bool):
-    """Scan and sanitize hosts file for Rust/EAC/Facepunch entries."""
-    if not _prompt("Scan hosts file for Rust/EAC entries?", interactive, dry): return
-    hosts = Path(r"C:\Windows\System32\drivers\etc\hosts")
-    if not hosts.exists(): return
-    if dry:
-        print(f"  [DRY] Would scan {hosts} for Rust/EAC entries")
-        return
-    try:
-        lines = hosts.read_text(encoding="utf-8").splitlines()
-        filtered = [l for l in lines if not any(k in l.lower() for k in ["rust","easyanticheat","facepunch","eac"])]
-        if len(filtered) < len(lines):
-            hosts.write_text("\n".join(filtered) + "\n", encoding="utf-8")
-            print(f"  ✓ Removed {len(lines)-len(filtered)} entries from hosts file")
-            logger.info(f"Cleaned hosts file: removed {len(lines)-len(filtered)} entries")
-        else:
-            print(f"  ℹ No Rust/EAC entries found in hosts file")
-    except Exception as e: print(f"  [!] Hosts file error: {e}")
-
-def _clean_loginusers(dry: bool, interactive: bool):
-    """Sanitize Steam loginusers.vdf by removing Rust AppID references."""
-    if not _prompt("Sanitize Steam loginusers.vdf?", interactive, dry): return
-    vdf = Path(r"C:\Program Files (x86)\Steam\config\loginusers.vdf")
-    if not vdf.exists(): return
-    if dry:
-        print(f"  [DRY] Would sanitize {vdf} (remove Rust-specific account metadata)")
-        return
-    try:
-        content = vdf.read_text(encoding="utf-8", errors="ignore")
-        if RUST in content:
-            # Backup first for safety
-            vdf.with_suffix(vdf.suffix + ".bak").write_text(content, encoding="utf-8")
-            # Remove lines containing Rust AppID (best-effort VDF sanitization)
-            cleaned = "\n".join(l for l in content.splitlines() if RUST not in l)
-            vdf.write_text(cleaned, encoding="utf-8")
-            print(f"  ✓ Sanitized loginusers.vdf (backup: {vdf}.bak)")
-            logger.info("Sanitized loginusers.vdf")
-        else:
-            print(f"  ℹ No Rust references found in loginusers.vdf")
-    except Exception as e: print(f"  [!] loginusers.vdf error: {e}")
+        prefetch_exes = [
+            "RUST.EXE", "RUSTCLIENT.EXE",
+            "STEAM.EXE", "STEAMSERVICE.EXE", "STEAMWEBHELPER.EXE",
+            "STEAMERRORREPORTER64.EXE", "STEAMSYSINFO.EXE",
+            "EASYANTICHEAT.EXE", "EASYANTICHEAT_EOS.EXE", "EASYANTICHEAT_SETUP.EXE",
+        ]
+        for exe in prefetch_exes:
+            for m in pf.glob(f"{exe}-*.pf"): _rm(m, dry, f"Prefetch/{m.name}")
 
 def _clean_reg(dry: bool, interactive: bool):
-    """Delete targeted registry keys for EAC, Facepunch, and Rust."""
     if not _prompt(f"Delete {len(REG_KEYS)} registry keys (EAC/Facepunch/Steam)?", interactive, dry): return
     for hive, sub in REG_KEYS:
         hive_str = "HKLM" if hive==winreg.HKEY_LOCAL_MACHINE else "HKCU"
@@ -383,7 +263,6 @@ def _clean_reg(dry: bool, interactive: bool):
         except Exception as e: print(f"  [!] Reg error {full}: {e}")
 
 def _clean_gpu_wer_tasks(dry: bool, interactive: bool):
-    """Clean GPU shader caches, WER reports, and scheduled tasks."""
     if not _prompt("Clean GPU caches, WER reports, tasks?", interactive, dry): return
     gpu_subs = ["NVIDIA/GLCache","NVIDIA/DXCache","NVIDIA/ShaderCache","AMD/DxCache","AMD/DXCache","AMD/ShaderCache","Intel/GLCache","Intel/DXCache","Intel/ShaderCache","D3DSCache","D3DSCache/UserData"]
     for k in ("APPDATA","LOCALAPPDATA"):
@@ -394,7 +273,7 @@ def _clean_gpu_wer_tasks(dry: bool, interactive: bool):
             if d.exists():
                 try:
                     for i in d.iterdir():
-                        if any(fnmatch.fnmatch(i.name.lower(), x) for x in ["*rust*","*steam*","*eac*","*facepunch*"]): _rm(i, dry, f"GPU/{i.name}")
+                        if any(fnmatch.fnmatch(i.name.lower(), x) for x in ["*rust*","*steam*","*easyanticheat*","*facepunch*"]): _rm(i, dry, f"GPU/{i.name}")
                 except PermissionError: pass
     for base in [env_path("LOCALAPPDATA")/"Microsoft/Windows/WER" if env_path("LOCALAPPDATA") else None, Path(r"C:\ProgramData\Microsoft\Windows\WER")]:
         if not base: continue
@@ -413,7 +292,6 @@ def _clean_gpu_wer_tasks(dry: bool, interactive: bool):
         except Exception as e: print(f"  [!] Task error {task}: {e}")
 
 def _rename_pc(dry: bool, name: str) -> None:
-    """Rename PC via PowerShell; change applies after reboot."""
     if dry or not name: return
     print(f"  Renaming PC to: {name}...")
     try:
@@ -424,25 +302,50 @@ def _rename_pc(dry: bool, name: str) -> None:
 # ── Main Execution ──────────────────────────────────────────────────
 def main():
     start = datetime.datetime.now()
-    p = argparse.ArgumentParser(description="RustCleaner v3: Minimal + Robust + Production-Ready")
-    p.add_argument("--dry-run", action="store_true", help="Preview only, no changes")
-    p.add_argument("--batch", action="store_true", help="Skip interactive prompts")
-    p.add_argument("--full-wipe", action="store_true", help="Delete Rust game folder (~50GB)")
+    p = argparse.ArgumentParser(description="RustCleaner: Minimal + Robust")
+    p.add_argument("--dry-run", action="store_true", help="Preview only")
+    p.add_argument("--batch", action="store_true", help="Skip prompts")
+    p.add_argument("--full-wipe", action="store_true", help="Delete game folder")
     args = p.parse_args()
 
-    # Default to interactive when launched bare (e.g., double-click start.bat)
     is_interactive = len(sys.argv) == 1 or not args.batch
-
-    # Admin elevation for real runs
     if not args.dry_run and not ctypes.windll.shell32.IsUserAnAdmin():
         script = str(Path(sys.argv[0]).resolve())
         safe_args = " ".join(f'"{a}"' if " " in a else a for a in sys.argv[1:])
         ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script}" {safe_args}', None, 1)
         sys.exit(0)
 
+    # ── Banner ───────────────────────────────────────────────────────
+    print("=" * 60)
+    print("  HARAM CLEANER - NBT EDITION")
+    print("=" * 60)
+    print()
+    print("  This tool helps clean Rust-related files and traces from your system.")
+    print("-" * 60)
+
+    # ── Interactive menu (overrides CLI flags if running interactively) ──
+    if is_interactive and not args.batch:
+        print()
+        print("  OPTION 1: DRY-RUN MODE (recommended for first use)")
+        print("-" * 60)
+        print("  → Dry-run shows what would be deleted without actually deleting anything.")
+        print()
+        dry_ans = input("  ? Enable DRY-RUN mode (preview only)? (y/n): ").strip().lower()
+        args.dry_run = dry_ans in ("y", "yes")
+        print()
+        print("  OPTION 2: CLEANING MODE")
+        print("-" * 60)
+        print("  → SMART MODE (recommended): Cleans identifiers but keeps the ~50GB game files.")
+        print("  → FULL-WIPE MODE: Deletes everything including the game (requires re-download).")
+        print()
+        wipe_ans = input("  ? Use FULL-WIPE mode (delete the entire game)? (y/n): ").strip().lower()
+        args.full_wipe = wipe_ans in ("y", "yes")
+        print()
+        print("=" * 60)
+
     dry = args.dry_run
     mode = "[DRY-RUN] " if dry else ""
-    print(f"{mode}RustCleaner v3: Starting...")
+    print(f"{mode}RustCleaner: Starting...")
     logger.info("=== Run Started ===")
 
     steam = _find_steam()
@@ -457,9 +360,6 @@ def main():
     _section("Cleaning Profiles"); _clean_steam_profile_identifiers(dry, is_interactive)
     _section("Cleaning EAC"); _clean_eac(dry, is_interactive)
     _section("Cleaning Temp"); _clean_temp(dry, is_interactive)
-    _section("Cleaning Event Logs"); _clean_event_logs(dry, is_interactive)
-    _section("Cleaning Hosts File"); _clean_hosts_file(dry, is_interactive)
-    _section("Sanitizing loginusers.vdf"); _clean_loginusers(dry, is_interactive)
     _section("Cleaning Registry"); _clean_reg(dry, is_interactive)
     _section("Cleaning GPU/WER"); _clean_gpu_wer_tasks(dry, is_interactive)
 
@@ -467,10 +367,12 @@ def main():
         for s in steam: _rm(s/"steamapps/common"/RUST_DIR, dry, "Full game folder")
         print(f"{mode}Full wipe: Game folder {'would be' if dry else ''} deleted")
 
+    # PC Rename (applied after cleaning, queued for reboot)
     _rename_pc(dry, pc_name)
+
     _print_next_steps(dry, args.full_wipe, pc_name)
     
-    # Auto-reboot prompt (strictly at the end, after all operations)
+    # Auto-reboot prompt (strictly at the end)
     if not dry and input("\n Reboot now? [y/N]: ").strip().lower() in ("y","yes"):
         subprocess.run(["shutdown","/r","/t","10"])
 
