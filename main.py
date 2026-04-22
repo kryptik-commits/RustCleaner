@@ -32,6 +32,89 @@ REG_KEYS = [
     (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Steam App {RUST}"),
 ]
 
+# ── Error Logging ────────────────────────────────────────────────────
+def _log_error(error: Exception, context: str = ""):
+    """Log detailed error information for user support"""
+    error_log = Path(__file__).parent / "rust_clean_error.log"
+    timestamp = datetime.datetime.now().isoformat()
+    
+    # Gather system info
+    import platform
+    sys_info = {
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "hostname": platform.node(),
+        "cwd": os.getcwd(),
+        "script_path": str(Path(__file__).resolve()),
+        "arguments": sys.argv,
+        "environment": {
+            "APPDATA": os.environ.get("APPDATA", "N/A"),
+            "LOCALAPPDATA": os.environ.get("LOCALAPPDATA", "N/A"),
+            "TEMP": os.environ.get("TEMP", "N/A"),
+            "TMP": os.environ.get("TMP", "N/A"),
+            "PROGRAMDATA": os.environ.get("PROGRAMDATA", "N/A"),
+            "WINDIR": os.environ.get("WINDIR", "N/A"),
+        }
+    }
+    
+    error_details = {
+        "type": type(error).__name__,
+        "message": str(error),
+        "context": context,
+        "traceback": traceback.format_exc(),
+    }
+    
+    log_content = f"""
+{'='*70}
+ERROR REPORT - {timestamp}
+{'='*70}
+
+SYSTEM INFORMATION:
+  Python Version: {sys_info['python_version']}
+  Platform: {sys_info['platform']}
+  Machine: {sys_info['machine']}
+  Processor: {sys_info['processor']}
+  Hostname: {sys_info['hostname']}
+  Working Directory: {sys_info['cwd']}
+  Script Path: {sys_info['script_path']}
+  
+COMMAND LINE ARGUMENTS:
+  {' '.join(sys_info['arguments'])}
+
+ENVIRONMENT VARIABLES:
+  APPDATA: {sys_info['environment']['APPDATA']}
+  LOCALAPPDATA: {sys_info['environment']['LOCALAPPDATA']}
+  TEMP: {sys_info['environment']['TEMP']}
+  TMP: {sys_info['environment']['TMP']}
+  PROGRAMDATA: {sys_info['environment']['PROGRAMDATA']}
+  WINDIR: {sys_info['environment']['WINDIR']}
+
+ERROR DETAILS:
+  Type: {error_details['type']}
+  Message: {error_details['message']}
+  Context: {error_details['context']}
+
+FULL TRACEBACK:
+{error_details['traceback']}
+
+{'='*70}
+END OF ERROR REPORT
+{'='*70}
+"""
+    
+    try:
+        with open(error_log, "w", encoding="utf-8") as f:
+            f.write(log_content)
+        logger.error(f"Error logged to: {error_log}")
+        print(f"\n  [!] An error occurred. Details saved to: rust_clean_error.log")
+        print(f"      Please send this file to support for assistance.")
+    except Exception as log_err:
+        print(f"\n  [!] CRITICAL: Failed to write error log: {log_err}")
+        print(f"      Original error: {error}")
+        traceback.print_exc()
+
 # ── File Logging ────────────────────────────────────────────────────
 LOG_FILE = Path(__file__).parent / "rust_clean.log"
 logger = logging.getLogger("rc")
@@ -122,8 +205,14 @@ def _kill(dry: bool):
         try:
             r = subprocess.run(["taskkill","/F","/IM",proc], capture_output=True, timeout=10)
             _log_status(r.returncode == 0, f"Killed {proc}")
-        except subprocess.TimeoutExpired: _log_status(False, f"Timeout killing {proc}")
-        except Exception as e: _log_status(False, f"Error killing {proc}: {e}")
+        except subprocess.TimeoutExpired: 
+            err_msg = f"Timeout killing {proc}"
+            _log_status(False, err_msg)
+            logger.error(err_msg)
+        except Exception as e: 
+            err_msg = f"Error killing {proc}: {e}"
+            _log_status(False, err_msg)
+            logger.error(err_msg, exc_info=True)
         time.sleep(0.5)
 
 def _find_steam():
@@ -134,7 +223,10 @@ def _find_steam():
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam") as k:
             p = Path(winreg.QueryValueEx(k, "InstallPath")[0])
             if p.exists(): dirs.add(p)
-    except Exception as e: print(f"  [!] Registry Steam lookup failed: {e}")
+    except Exception as e: 
+        err_msg = f"Registry Steam lookup failed: {e}"
+        print(f"  [!] {err_msg}")
+        logger.error(err_msg, exc_info=True)
     for sdir in list(dirs):
         vdf = sdir / "steamapps" / "libraryfolders.vdf"
         if not vdf.exists(): continue
@@ -146,7 +238,10 @@ def _find_steam():
                         p = Path(parts[3].replace("\\\\", "\\"))
                         if p.exists(): dirs.add(p)
                     else: print(f"  [!] Malformed VDF line: {line[:50]}...")
-        except Exception as e: print(f"  [!] Failed to parse VDF: {e}")
+        except Exception as e: 
+            err_msg = f"Failed to parse VDF: {e}"
+            print(f"  [!] {err_msg}")
+            logger.error(err_msg, exc_info=True)
     return list(dirs)
 
 def _clean_steam(dirs, dry: bool, interactive: bool):
@@ -211,14 +306,23 @@ def _clean_eac(dry: bool, interactive: bool):
             if r.returncode != 0: print(f"  [!] Failed to stop: {svc}"); continue
             r = subprocess.run(["sc","delete",svc], capture_output=True, timeout=15)
             _log_status(r.returncode == 0, f"Removed service {svc}")
-        except subprocess.TimeoutExpired: _log_status(False, f"Timeout on {svc}")
-        except Exception as e: _log_status(False, f"Error on {svc}: {e}")
+        except subprocess.TimeoutExpired: 
+            err_msg = f"Timeout on {svc}"
+            _log_status(False, err_msg)
+            logger.error(err_msg)
+        except Exception as e: 
+            err_msg = f"Error on {svc}: {e}"
+            _log_status(False, err_msg)
+            logger.error(err_msg, exc_info=True)
     eac = Path(r"C:\Program Files (x86)\EasyAntiCheat_EOS\EasyAntiCheat_EOS.exe")
     if eac.exists() and not dry:
         try:
             r = subprocess.run([str(eac),"qa-factory-reset"], capture_output=True, timeout=30)
             _log_status(r.returncode == 0, "EAC factory reset")
-        except Exception as e: _log_status(False, f"EAC reset error: {e}")
+        except Exception as e: 
+            err_msg = f"EAC reset error: {e}"
+            _log_status(False, err_msg)
+            logger.error(err_msg, exc_info=True)
     _appdata     = env_path("APPDATA")
     _localappdata = env_path("LOCALAPPDATA")
     eac_paths = [
@@ -265,7 +369,10 @@ def _clean_reg(dry: bool, interactive: bool):
             r = subprocess.run(["reg","delete",full,"/f"], capture_output=True, timeout=30)
             _log_status(r.returncode == 0, f"Reg {sub.split('\\')[-1]}")
         except FileNotFoundError: pass
-        except Exception as e: print(f"  [!] Reg error {full}: {e}")
+        except Exception as e: 
+            err_msg = f"Reg error {full}: {e}"
+            print(f"  [!] {err_msg}")
+            logger.error(err_msg, exc_info=True)
 
 def _clean_gpu_wer_tasks(dry: bool, interactive: bool):
     if not _prompt("Clean GPU caches, WER reports, tasks?", interactive, dry): return
@@ -294,7 +401,10 @@ def _clean_gpu_wer_tasks(dry: bool, interactive: bool):
         try:
             r = subprocess.run(["schtasks","/Delete","/TN",task,"/F"], capture_output=True, timeout=30)
             _log_status(r.returncode == 0, f"Task {task}")
-        except Exception as e: print(f"  [!] Task error {task}: {e}")
+        except Exception as e: 
+            err_msg = f"Task error {task}: {e}"
+            print(f"  [!] {err_msg}")
+            logger.error(err_msg, exc_info=True)
 
 def _rename_pc(dry: bool, name: str) -> None:
     if dry or not name: return
@@ -302,7 +412,10 @@ def _rename_pc(dry: bool, name: str) -> None:
     try:
         r = subprocess.run(["powershell","-NoProfile","-Command",f"Rename-Computer -NewName '{name}' -Force"], capture_output=True, text=True, timeout=30)
         _log_status(r.returncode == 0, "PC renamed")
-    except Exception as e: _log_status(False, f"PC rename error: {e}")
+    except Exception as e: 
+        err_msg = f"PC rename error: {e}"
+        _log_status(False, err_msg)
+        logger.error(err_msg, exc_info=True)
 
 # ── Main Execution ──────────────────────────────────────────────────
 def main():
@@ -393,4 +506,9 @@ def main():
 if __name__ == "__main__":
     try: main()
     except KeyboardInterrupt: print("\n⚠ Cancelled by user (Ctrl+C)"); sys.exit(0)
-    except Exception as e: print(f"\n❌ Unexpected error: {e}"); traceback.print_exc(); input("Press Enter"); sys.exit(1)
+    except Exception as e: 
+        _log_error(e, "Main execution")
+        print(f"\n❌ Unexpected error: {e}")
+        traceback.print_exc()
+        input("Press Enter")
+        sys.exit(1)
