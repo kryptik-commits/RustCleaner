@@ -38,7 +38,7 @@ A minimal, transparent, and production-ready utility for removing Rust, EasyAnti
 ### 🛠 Usage
 
 #### Quick Start
-1. Place `start.bat` and `rust_clean.py` in the same directory.
+1. Place `start.bat` and `main.py` in the same directory.
 2. Right-click `start.bat` → **Run as Administrator**.
 3. Follow the interactive prompts, or run `--dry-run` first to audit.
 
@@ -57,13 +57,13 @@ A minimal, transparent, and production-ready utility for removing Rust, EasyAnti
 python rust_clean.py --dry-run
 
 # Guided interactive cleanup (default when double-clicking start.bat)
-python rust_clean.py
+python main.py
 
 # Automated cleanup with forced rename
-python rust_clean.py --batch
+python main.py --batch
 
 # Full wipe + automated + preview
-python rust_clean.py --full-wipe --dry-run
+python main.py --full-wipe --dry-run
 ```
 
 ---
