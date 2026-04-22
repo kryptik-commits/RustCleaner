@@ -308,14 +308,9 @@ def main():
     p.add_argument("--full-wipe", action="store_true", help="Delete game folder")
     args = p.parse_args()
 
-    is_interactive = len(sys.argv) == 1 or not args.batch
-    if not args.dry_run and not ctypes.windll.shell32.IsUserAnAdmin():
-        script = str(Path(sys.argv[0]).resolve())
-        safe_args = " ".join(f'"{a}"' if " " in a else a for a in sys.argv[1:])
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script}" {safe_args}', None, 1)
-        sys.exit(0)
+    is_interactive = not args.batch
 
-    # ── Banner ───────────────────────────────────────────────────────
+    # ── Banner (always show before any prompts or UAC) ───────────────
     print("=" * 60)
     print("  HARAM CLEANER - NBT EDITION")
     print("=" * 60)
@@ -323,8 +318,8 @@ def main():
     print("  This tool helps clean Rust-related files and traces from your system.")
     print("-" * 60)
 
-    # ── Interactive menu (overrides CLI flags if running interactively) ──
-    if is_interactive and not args.batch:
+    # ── Interactive menu FIRST — so user makes choices before UAC fires ──
+    if is_interactive:
         print()
         print("  OPTION 1: DRY-RUN MODE (recommended for first use)")
         print("-" * 60)
@@ -344,6 +339,18 @@ def main():
         print("=" * 60)
 
     dry = args.dry_run
+
+    # ── Admin check AFTER menu — now we know if dry-run was chosen ───
+    # Re-launch passes the user's choices as flags so the elevated
+    # process skips the menu entirely (--batch) and runs correctly.
+    if not dry and not ctypes.windll.shell32.IsUserAnAdmin():
+        script = str(Path(sys.argv[0]).resolve())
+        relaunch_args = ["--batch"]
+        if args.full_wipe:
+            relaunch_args.append("--full-wipe")
+        safe_args = " ".join(relaunch_args)
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script}" {safe_args}', None, 1)
+        sys.exit(0)
     mode = "[DRY-RUN] " if dry else ""
     print(f"{mode}RustCleaner: Starting...")
     logger.info("=== Run Started ===")
