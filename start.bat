@@ -1,6 +1,5 @@
 @echo off
-:: RustCleaner v3 Launcher
-:: Forces interactive mode by default, handles working directory
+:: Main launcher: Forces interactive mode by default
 cd /d "%~dp0"
-python "%~dp0rust_clean.py"
+python "%~dp0main.py"
 pause
