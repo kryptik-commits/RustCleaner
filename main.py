@@ -40,7 +40,7 @@ try:
     fh = logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8")
     fh.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
     logger.addHandler(fh)
-except: pass  # Fallback: console only
+except Exception: pass  # Fallback: console only
 
 # ── Helpers ─────────────────────────────────────────────────────────
 def env_path(var: str) -> Optional[Path]:
@@ -54,7 +54,7 @@ def _rm(p: Path, dry: bool, label: str = "") -> bool:
         print(f"  [DRY] Would delete: {msg}"); logger.info(f"[DRY] {p}")
         return True
     try:
-        (shutil.rmtree if p.is_dir() else p.unlink)(p)
+        shutil.rmtree(p) if p.is_dir() else p.unlink()
         print(f"  ✓ Deleted: {p}"); logger.info(f"Deleted: {p}")
         return True
     except PermissionError: print(f"  [!] Locked: {p}"); return False
@@ -176,9 +176,11 @@ def _clean_steam(dirs, dry: bool, interactive: bool):
                     if not u.is_dir(): continue
                     _rm(u/RUST, dry, "Userdata/Rust")
                     _rm(u/"760"/"remote"/RUST, dry, "Steam Cloud/Remote")
-                    for stray in u.iterdir():
-                        if any(k in stray.name.lower() for k in ["rust", "facepunch"]):
-                            _rm(stray, dry, "Stray Facepunch/Rust")
+                    try:
+                        for stray in u.iterdir():
+                            if any(k in stray.name.lower() for k in ["rust", "facepunch"]):
+                                _rm(stray, dry, "Stray Facepunch/Rust")
+                    except PermissionError: pass
             except PermissionError: pass
 
     for root_env in ("APPDATA","LOCALAPPDATA"):
@@ -217,10 +219,12 @@ def _clean_eac(dry: bool, interactive: bool):
             r = subprocess.run([str(eac),"qa-factory-reset"], capture_output=True, timeout=30)
             _log_status(r.returncode == 0, "EAC factory reset")
         except Exception as e: _log_status(False, f"EAC reset error: {e}")
+    _appdata     = env_path("APPDATA")
+    _localappdata = env_path("LOCALAPPDATA")
     eac_paths = [
         (Path(r"C:\Program Files (x86)\EasyAntiCheat_EOS"), "EAC ProgramFiles"),
-        (env_path("APPDATA") / "EasyAntiCheat" if env_path("APPDATA") else None, "EAC AppData"),
-        (env_path("LOCALAPPDATA") / "EasyAntiCheat" if env_path("LOCALAPPDATA") else None, "EAC LocalAppData"),
+        (_appdata / "EasyAntiCheat" if _appdata else None, "EAC AppData"),
+        (_localappdata / "EasyAntiCheat" if _localappdata else None, "EAC LocalAppData"),
         (Path(os.environ.get("PROGRAMDATA",r"C:\ProgramData")) / "EasyAntiCheat", "EAC ProgramData"),
         (Path(r"C:\Users\Public\EasyAntiCheat"), "EAC Public"),
         (Path(os.environ.get("WINDIR",r"C:\Windows")) / "Temp/EasyAntiCheat", "EAC Temp"),
@@ -231,7 +235,8 @@ def _clean_eac(dry: bool, interactive: bool):
 def _clean_temp(dry: bool, interactive: bool):
     if not _prompt("Clean temp/prefetch files?", interactive, dry): return
     pats = [f"*{x}*" for x in ["rust","steam","easyanticheat","facepunch",RUST]]
-    temp_dirs = [env_path("TEMP"), env_path("TMP"), env_path("LOCALAPPDATA")/"Temp" if env_path("LOCALAPPDATA") else None, Path(os.environ.get("WINDIR",r"C:\Windows"))/"Temp"]
+    _localappdata = env_path("LOCALAPPDATA")
+    temp_dirs = [env_path("TEMP"), env_path("TMP"), _localappdata/"Temp" if _localappdata else None, Path(os.environ.get("WINDIR",r"C:\Windows"))/"Temp"]
     for td in [d for d in temp_dirs if d]:
         if not td.exists(): continue
         try:
@@ -308,9 +313,17 @@ def main():
     p.add_argument("--full-wipe", action="store_true", help="Delete game folder")
     args = p.parse_args()
 
-    is_interactive = not args.batch
+    is_interactive = len(sys.argv) == 1 or not args.batch
+    if not args.dry_run and not ctypes.windll.shell32.IsUserAnAdmin():
+        script = str(Path(sys.argv[0]).resolve())
+        safe_args = " ".join(f'"{a}"' if " " in a else a for a in sys.argv[1:])
+        result = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script}" {safe_args}', None, 1)
+        if result <= 32:
+            print(f"\n[!] Elevation failed or was cancelled (code {result}). Please run as Administrator manually.")
+            input("Press Enter to exit")
+        sys.exit(0)
 
-    # ── Banner (always show before any prompts or UAC) ───────────────
+    # ── Banner ───────────────────────────────────────────────────────
     print("=" * 60)
     print("  HARAM CLEANER - NBT EDITION")
     print("=" * 60)
@@ -318,15 +331,16 @@ def main():
     print("  This tool helps clean Rust-related files and traces from your system.")
     print("-" * 60)
 
-    # ── Interactive menu FIRST — so user makes choices before UAC fires ──
-    if is_interactive:
+    # ── Interactive menu (overrides CLI flags if running interactively) ──
+    if is_interactive and not args.batch:
         print()
         print("  OPTION 1: DRY-RUN MODE (recommended for first use)")
         print("-" * 60)
         print("  → Dry-run shows what would be deleted without actually deleting anything.")
         print()
         dry_ans = input("  ? Enable DRY-RUN mode (preview only)? (y/n): ").strip().lower()
-        args.dry_run = dry_ans in ("y", "yes")
+        if "--dry-run" not in sys.argv:
+            args.dry_run = dry_ans in ("y", "yes")
         print()
         print("  OPTION 2: CLEANING MODE")
         print("-" * 60)
@@ -334,23 +348,12 @@ def main():
         print("  → FULL-WIPE MODE: Deletes everything including the game (requires re-download).")
         print()
         wipe_ans = input("  ? Use FULL-WIPE mode (delete the entire game)? (y/n): ").strip().lower()
-        args.full_wipe = wipe_ans in ("y", "yes")
+        if "--full-wipe" not in sys.argv:
+            args.full_wipe = wipe_ans in ("y", "yes")
         print()
         print("=" * 60)
 
     dry = args.dry_run
-
-    # ── Admin check AFTER menu — now we know if dry-run was chosen ───
-    # Re-launch passes the user's choices as flags so the elevated
-    # process skips the menu entirely (--batch) and runs correctly.
-    if not dry and not ctypes.windll.shell32.IsUserAnAdmin():
-        script = str(Path(sys.argv[0]).resolve())
-        relaunch_args = ["--batch"]
-        if args.full_wipe:
-            relaunch_args.append("--full-wipe")
-        safe_args = " ".join(relaunch_args)
-        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, f'"{script}" {safe_args}', None, 1)
-        sys.exit(0)
     mode = "[DRY-RUN] " if dry else ""
     print(f"{mode}RustCleaner: Starting...")
     logger.info("=== Run Started ===")
@@ -360,7 +363,7 @@ def main():
     print(f"{mode}Found {len(steam)} Steam install(s)")
 
     pc_name = _get_pc_name(dry, args.batch)
-    if not dry and not _confirm(False, args.full_wipe, pc_name): input("Press Enter"); return
+    if not dry and not _confirm(dry, args.full_wipe, pc_name): input("Press Enter"); return
 
     _section("Killing Processes"); _kill(dry)
     _section("Cleaning Steam"); _clean_steam(steam, dry, is_interactive)
@@ -381,7 +384,7 @@ def main():
     
     # Auto-reboot prompt (strictly at the end)
     if not dry and input("\n Reboot now? [y/N]: ").strip().lower() in ("y","yes"):
-        subprocess.run(["shutdown","/r","/t","10"])
+        subprocess.run(["shutdown","/r","/t","10"], timeout=15)
 
     elapsed = (datetime.datetime.now() - start).seconds
     logger.info(f"=== Run Complete ({elapsed}s) ===")
