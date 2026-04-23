@@ -9,7 +9,7 @@ A minimal, transparent, and production-ready utility for removing Rust, EasyAnti
 
 ### 📖 Core Philosophy
 - **Explicit over Implicit:** Every action is logged, validated, and optionally previewed before execution.
-- **Minimal over Maximalist:** ~480 lines of well-documented Python. No external dependencies, no speculative abstractions, no silent assumptions.
+- **Minimal over Maximalist:** ~510 lines of well-documented Python. No external dependencies, no speculative abstractions, no silent assumptions.
 - **Safety over Speed:** Return-code verification, timeout guards, permission-aware deletion with retry logic, and mandatory dry-run capability.
 - **Targeted over Destructive:** Only touches Rust (AppID `252490`), EasyAntiCheat, and Facepunch traces. All other Steam games and system files remain untouched.
 
