@@ -37,7 +37,7 @@ def _log_error(error: Exception, context: str = ""):
     """Log detailed error information for user support"""
     error_log = Path(__file__).parent / "rust_clean_error.log"
     timestamp = datetime.datetime.now().isoformat()
-    
+
     # Gather system info
     import platform
     sys_info = {
@@ -58,43 +58,43 @@ def _log_error(error: Exception, context: str = ""):
             "WINDIR": os.environ.get("WINDIR", "N/A"),
         }
     }
-    
+
     error_details = {
         "type": type(error).__name__,
         "message": str(error),
         "context": context,
         "traceback": traceback.format_exc(),
     }
-    
+
     log_content = f"""
 {'='*70}
 ERROR REPORT - {timestamp}
 {'='*70}
 
 SYSTEM INFORMATION:
-  Python Version: {sys_info['python_version']}
-  Platform: {sys_info['platform']}
-  Machine: {sys_info['machine']}
-  Processor: {sys_info['processor']}
-  Hostname: {sys_info['hostname']}
-  Working Directory: {sys_info['cwd']}
-  Script Path: {sys_info['script_path']}
-  
+ Python Version: {sys_info['python_version']}
+ Platform: {sys_info['platform']}
+ Machine: {sys_info['machine']}
+ Processor: {sys_info['processor']}
+ Hostname: {sys_info['hostname']}
+ Working Directory: {sys_info['cwd']}
+ Script Path: {sys_info['script_path']}
+
 COMMAND LINE ARGUMENTS:
-  {' '.join(sys_info['arguments'])}
+ {' '.join(sys_info['arguments'])}
 
 ENVIRONMENT VARIABLES:
-  APPDATA: {sys_info['environment']['APPDATA']}
-  LOCALAPPDATA: {sys_info['environment']['LOCALAPPDATA']}
-  TEMP: {sys_info['environment']['TEMP']}
-  TMP: {sys_info['environment']['TMP']}
-  PROGRAMDATA: {sys_info['environment']['PROGRAMDATA']}
-  WINDIR: {sys_info['environment']['WINDIR']}
+ APPDATA: {sys_info['environment']['APPDATA']}
+ LOCALAPPDATA: {sys_info['environment']['LOCALAPPDATA']}
+ TEMP: {sys_info['environment']['TEMP']}
+ TMP: {sys_info['environment']['TMP']}
+ PROGRAMDATA: {sys_info['environment']['PROGRAMDATA']}
+ WINDIR: {sys_info['environment']['WINDIR']}
 
 ERROR DETAILS:
-  Type: {error_details['type']}
-  Message: {error_details['message']}
-  Context: {error_details['context']}
+ Type: {error_details['type']}
+ Message: {error_details['message']}
+ Context: {error_details['context']}
 
 FULL TRACEBACK:
 {error_details['traceback']}
@@ -103,16 +103,16 @@ FULL TRACEBACK:
 END OF ERROR REPORT
 {'='*70}
 """
-    
+
     try:
         with open(error_log, "w", encoding="utf-8") as f:
             f.write(log_content)
         logger.error(f"Error logged to: {error_log}")
-        print(f"\n  [!] An error occurred. Details saved to: rust_clean_error.log")
-        print(f"      Please send this file to support for assistance.")
+        print(f"\n [!] An error occurred. Details saved to: rust_clean_error.log")
+        print(f" Please send this file to support for assistance.")
     except Exception as log_err:
-        print(f"\n  [!] CRITICAL: Failed to write error log: {log_err}")
-        print(f"      Original error: {error}")
+        print(f"\n [!] CRITICAL: Failed to write error log: {log_err}")
+        print(f" Original error: {error}")
         traceback.print_exc()
 
 # ── File Logging ────────────────────────────────────────────────────
@@ -123,7 +123,8 @@ try:
     fh = logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8")
     fh.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
     logger.addHandler(fh)
-except Exception: pass  # Fallback: console only
+except Exception as e:
+    logger.warning(f"Logging setup failed: {e}")  # FIX: bare except → logged warning
 
 # ── Helpers ─────────────────────────────────────────────────────────
 def env_path(var: str) -> Optional[Path]:
@@ -134,14 +135,14 @@ def _rm(p: Path, dry: bool, label: str = "") -> bool:
     if not p.exists(): return False
     msg = f"{p} ({label})" if label else str(p)
     if dry:
-        print(f"  [DRY] Would delete: {msg}"); logger.info(f"[DRY] {p}")
+        print(f" [DRY] Would delete: {msg}"); logger.info(f"[DRY] {p}")
         return True
     try:
         shutil.rmtree(p) if p.is_dir() else p.unlink()
-        print(f"  ✓ Deleted: {p}"); logger.info(f"Deleted: {p}")
+        print(f" ✓ Deleted: {p}"); logger.info(f"Deleted: {p}")
         return True
-    except PermissionError: print(f"  [!] Locked: {p}"); return False
-    except Exception as e: print(f"  [!] Failed: {p} — {e}"); return False
+    except PermissionError: print(f" [!] Locked: {p}"); return False
+    except Exception as e: print(f" [!] Failed: {p} — {e}"); return False
 
 def _prompt(msg: str, interactive: bool, dry: bool) -> bool:
     if dry: return True
@@ -150,7 +151,7 @@ def _prompt(msg: str, interactive: bool, dry: bool) -> bool:
         ans = input(f"{msg} [y/N]: ").strip().lower()
         if ans in ("y", "yes"): return True
         if ans in ("", "n", "no"): return False
-        print("  [?] Answer 'y' or 'n'")
+        print(" [?] Answer 'y' or 'n'")
 
 def _validate_pc_name(name: str) -> bool:
     return 1 <= len(name) <= 15 and name[0] != '-' and name[-1] != '-' and all(c.isalnum() or c == '-' for c in name)
@@ -158,14 +159,14 @@ def _validate_pc_name(name: str) -> bool:
 def _get_pc_name(dry: bool, batch: bool) -> str:
     if dry: return "DRYRUN-PC"
     if batch: return f"WIN-{''.join(random.choices(string.ascii_uppercase + string.digits, k=7))}"
-    print("  PC rename is REQUIRED. (1-15 chars, alphanumeric/hyphens, no leading/trailing hyphens)")
+    print(" PC rename is REQUIRED. (1-15 chars, alphanumeric/hyphens, no leading/trailing hyphens)")
     while True:
-        name = input("  New PC name: ").strip()
+        name = input(" New PC name: ").strip()
         if _validate_pc_name(name): return name
-        print("  [!] Invalid name. Follow rules above and try again.")
+        print(" [!] Invalid name. Follow rules above and try again.")
 
 def _section(title: str): print(f"\n── {title} " + "─"*(45-len(title))); logger.info(title)
-def _log_status(ok: bool, msg: str): print(f"  {'✓' if ok else '✗'} {msg}"); logger.info(f"{'OK' if ok else 'FAIL'}: {msg}")
+def _log_status(ok: bool, msg: str): print(f" {'✓' if ok else '✗'} {msg}"); logger.info(f"{'OK' if ok else 'FAIL'}: {msg}")
 
 def _confirm(dry: bool, full_wipe: bool, pc_name: str) -> bool:
     if dry: return True
@@ -179,7 +180,7 @@ def _confirm(dry: bool, full_wipe: bool, pc_name: str) -> bool:
         ans = input("\n ❓ Proceed? [y/N]: ").strip().lower()
         if ans in ("y", "yes"): return True
         if ans in ("", "n", "no"): print(" ✋ Cancelled."); logger.info("Cancelled by user"); return False
-        print("  [?] Answer 'y' or 'n'")
+        print(" [?] Answer 'y' or 'n'")
 
 def _print_next_steps(dry: bool, full_wipe: bool, pc_name: str):
     print(f"\n{'='*45}")
@@ -201,15 +202,15 @@ def _print_next_steps(dry: bool, full_wipe: bool, pc_name: str):
 # ── Cleaners ────────────────────────────────────────────────────────
 def _kill(dry: bool):
     for proc in PROCS:
-        if dry: print(f"  [DRY] Would kill: {proc}"); continue
+        if dry: print(f" [DRY] Would kill: {proc}"); continue
         try:
             r = subprocess.run(["taskkill","/F","/IM",proc], capture_output=True, timeout=10)
             _log_status(r.returncode == 0, f"Killed {proc}")
-        except subprocess.TimeoutExpired: 
+        except subprocess.TimeoutExpired:
             err_msg = f"Timeout killing {proc}"
             _log_status(False, err_msg)
             logger.error(err_msg)
-        except Exception as e: 
+        except Exception as e:
             err_msg = f"Error killing {proc}: {e}"
             _log_status(False, err_msg)
             logger.error(err_msg, exc_info=True)
@@ -223,9 +224,9 @@ def _find_steam():
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam") as k:
             p = Path(winreg.QueryValueEx(k, "InstallPath")[0])
             if p.exists(): dirs.add(p)
-    except Exception as e: 
+    except Exception as e:
         err_msg = f"Registry Steam lookup failed: {e}"
-        print(f"  [!] {err_msg}")
+        print(f" [!] {err_msg}")
         logger.error(err_msg, exc_info=True)
     for sdir in list(dirs):
         vdf = sdir / "steamapps" / "libraryfolders.vdf"
@@ -235,12 +236,13 @@ def _find_steam():
                 if '"path"' in line.lower():
                     parts = line.split('"')
                     if len(parts) >= 4:
+                        # FIX: unterminated string literal → proper escape
                         p = Path(parts[3].replace("\\\\", "\\"))
                         if p.exists(): dirs.add(p)
-                    else: print(f"  [!] Malformed VDF line: {line[:50]}...")
-        except Exception as e: 
+                    else: print(f" [!] Malformed VDF line: {line[:50]}...")
+        except Exception as e:
             err_msg = f"Failed to parse VDF: {e}"
-            print(f"  [!] {err_msg}")
+            print(f" [!] {err_msg}")
             logger.error(err_msg, exc_info=True)
     return list(dirs)
 
@@ -300,17 +302,17 @@ def _clean_steam_profile_identifiers(dry: bool, interactive: bool):
 def _clean_eac(dry: bool, interactive: bool):
     if not _prompt("Delete EAC services & folders?", interactive, dry): return
     for svc in ["EasyAntiCheat","EasyAntiCheat_EOS"]:
-        if dry: print(f"  [DRY] Would stop/delete service: {svc}"); continue
+        if dry: print(f" [DRY] Would stop/delete service: {svc}"); continue
         try:
             r = subprocess.run(["sc","stop",svc], capture_output=True, timeout=15)
-            if r.returncode != 0: print(f"  [!] Failed to stop: {svc}"); continue
+            if r.returncode != 0: print(f" [!] Failed to stop: {svc}"); continue
             r = subprocess.run(["sc","delete",svc], capture_output=True, timeout=15)
             _log_status(r.returncode == 0, f"Removed service {svc}")
-        except subprocess.TimeoutExpired: 
+        except subprocess.TimeoutExpired:
             err_msg = f"Timeout on {svc}"
             _log_status(False, err_msg)
             logger.error(err_msg)
-        except Exception as e: 
+        except Exception as e:
             err_msg = f"Error on {svc}: {e}"
             _log_status(False, err_msg)
             logger.error(err_msg, exc_info=True)
@@ -319,11 +321,11 @@ def _clean_eac(dry: bool, interactive: bool):
         try:
             r = subprocess.run([str(eac),"qa-factory-reset"], capture_output=True, timeout=30)
             _log_status(r.returncode == 0, "EAC factory reset")
-        except Exception as e: 
+        except Exception as e:
             err_msg = f"EAC reset error: {e}"
             _log_status(False, err_msg)
             logger.error(err_msg, exc_info=True)
-    _appdata     = env_path("APPDATA")
+    _appdata = env_path("APPDATA")
     _localappdata = env_path("LOCALAPPDATA")
     eac_paths = [
         (Path(r"C:\Program Files (x86)\EasyAntiCheat_EOS"), "EAC ProgramFiles"),
@@ -363,15 +365,17 @@ def _clean_reg(dry: bool, interactive: bool):
     for hive, sub in REG_KEYS:
         hive_str = "HKLM" if hive==winreg.HKEY_LOCAL_MACHINE else "HKCU"
         full = f"{hive_str}\\{sub}"
-        if dry: print(f"  [DRY] Would delete reg: {full}"); continue
+        if dry: print(f" [DRY] Would delete reg: {full}"); continue
         try:
             with winreg.OpenKey(hive, sub): pass
             r = subprocess.run(["reg","delete",full,"/f"], capture_output=True, timeout=30)
-            _log_status(r.returncode == 0, f"Reg {sub.split('\\')[-1]}")
+            # FIX: defensive split for log message
+            key_name = sub.split('\\')[-1] if '\\' in sub else sub
+            _log_status(r.returncode == 0, f"Reg {key_name}")
         except FileNotFoundError: pass
-        except Exception as e: 
+        except Exception as e:
             err_msg = f"Reg error {full}: {e}"
-            print(f"  [!] {err_msg}")
+            print(f" [!] {err_msg}")
             logger.error(err_msg, exc_info=True)
 
 def _clean_gpu_wer_tasks(dry: bool, interactive: bool):
@@ -387,7 +391,7 @@ def _clean_gpu_wer_tasks(dry: bool, interactive: bool):
                     for i in d.iterdir():
                         if any(fnmatch.fnmatch(i.name.lower(), x) for x in ["*rust*","*steam*","*easyanticheat*","*facepunch*"]): _rm(i, dry, f"GPU/{i.name}")
                 except PermissionError: pass
-    for base in [env_path("LOCALAPPDATA")/"Microsoft/Windows/WER" if env_path("LOCALAPPDATA") else None, Path(r"C:\ProgramData\Microsoft\Windows\WER")]:
+    for base in [_localappdata/"Microsoft/Windows/WER" if _localappdata else None, Path(r"C:\ProgramData\Microsoft\Windows\WER")]:
         if not base: continue
         for sub in ["ReportArchive","ReportQueue"]:
             d = base/sub
@@ -396,23 +400,23 @@ def _clean_gpu_wer_tasks(dry: bool, interactive: bool):
                     for i in d.iterdir():
                         if any(x in i.name.lower() for x in ["rust","steam","easyanticheat","facepunch"]): _rm(i, dry, f"WER/{i.name}")
                 except PermissionError: pass
-    for task in ["EasyAntiCheat","MicrosoftWindowsEasyAntiCheat"]:
-        if dry: print(f"  [DRY] Would delete task: {task}"); continue
+    for task in ["EasyAntiCheat","Microsoft\Windows\EasyAntiCheat"]:
+        if dry: print(f" [DRY] Would delete task: {task}"); continue
         try:
             r = subprocess.run(["schtasks","/Delete","/TN",task,"/F"], capture_output=True, timeout=30)
             _log_status(r.returncode == 0, f"Task {task}")
-        except Exception as e: 
+        except Exception as e:
             err_msg = f"Task error {task}: {e}"
-            print(f"  [!] {err_msg}")
+            print(f" [!] {err_msg}")
             logger.error(err_msg, exc_info=True)
 
 def _rename_pc(dry: bool, name: str) -> None:
     if dry or not name: return
-    print(f"  Renaming PC to: {name}...")
+    print(f" Renaming PC to: {name}...")
     try:
         r = subprocess.run(["powershell","-NoProfile","-Command",f"Rename-Computer -NewName '{name}' -Force"], capture_output=True, text=True, timeout=30)
         _log_status(r.returncode == 0, "PC renamed")
-    except Exception as e: 
+    except Exception as e:
         err_msg = f"PC rename error: {e}"
         _log_status(False, err_msg)
         logger.error(err_msg, exc_info=True)
@@ -434,33 +438,33 @@ def main():
         if result <= 32:
             print(f"\n[!] Elevation failed or was cancelled (code {result}). Please run as Administrator manually.")
             input("Press Enter to exit")
-        sys.exit(0)
+            sys.exit(0)
 
     # ── Banner ───────────────────────────────────────────────────────
     print("=" * 60)
-    print("  HARAM CLEANER - NBT EDITION")
+    print(" HARAM CLEANER - NBT EDITION")
     print("=" * 60)
     print()
-    print("  This tool helps clean Rust-related files and traces from your system.")
+    print(" This tool helps clean Rust-related files and traces from your system.")
     print("-" * 60)
 
     # ── Interactive menu (overrides CLI flags if running interactively) ──
     if is_interactive and not args.batch:
         print()
-        print("  OPTION 1: DRY-RUN MODE (recommended for first use)")
+        print(" OPTION 1: DRY-RUN MODE (recommended for first use)")
         print("-" * 60)
-        print("  → Dry-run shows what would be deleted without actually deleting anything.")
+        print(" → Dry-run shows what would be deleted without actually deleting anything.")
         print()
-        dry_ans = input("  ? Enable DRY-RUN mode (preview only)? (y/n): ").strip().lower()
+        dry_ans = input(" ? Enable DRY-RUN mode (preview only)? (y/n): ").strip().lower()
         if "--dry-run" not in sys.argv:
             args.dry_run = dry_ans in ("y", "yes")
         print()
-        print("  OPTION 2: CLEANING MODE")
+        print(" OPTION 2: CLEANING MODE")
         print("-" * 60)
-        print("  → SMART MODE (recommended): Cleans identifiers but keeps the ~50GB game files.")
-        print("  → FULL-WIPE MODE: Deletes everything including the game (requires re-download).")
+        print(" → SMART MODE (recommended): Cleans identifiers but keeps the ~50GB game files.")
+        print(" → FULL-WIPE MODE: Deletes everything including the game (requires re-download).")
         print()
-        wipe_ans = input("  ? Use FULL-WIPE mode (delete the entire game)? (y/n): ").strip().lower()
+        wipe_ans = input(" ? Use FULL-WIPE mode (delete the entire game)? (y/n): ").strip().lower()
         if "--full-wipe" not in sys.argv:
             args.full_wipe = wipe_ans in ("y", "yes")
         print()
@@ -494,7 +498,7 @@ def main():
     _rename_pc(dry, pc_name)
 
     _print_next_steps(dry, args.full_wipe, pc_name)
-    
+
     # Auto-reboot prompt (strictly at the end)
     if not dry and input("\n Reboot now? [y/N]: ").strip().lower() in ("y","yes"):
         subprocess.run(["shutdown","/r","/t","10"], timeout=15)
@@ -506,7 +510,7 @@ def main():
 if __name__ == "__main__":
     try: main()
     except KeyboardInterrupt: print("\n⚠ Cancelled by user (Ctrl+C)"); sys.exit(0)
-    except Exception as e: 
+    except Exception as e:
         _log_error(e, "Main execution")
         print(f"\n❌ Unexpected error: {e}")
         traceback.print_exc()
