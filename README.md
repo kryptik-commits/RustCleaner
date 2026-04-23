@@ -3,7 +3,7 @@
 
 A minimal, transparent, and production-ready utility for removing Rust, EasyAntiCheat, and Facepunch identifiers, caches, and system traces from Windows. Designed for players who require a clean local environment without unnecessary abstractions, hidden behaviors, or bloated feature sets.
 
-**~480 lines. Standard library only. Zero external dependencies.**
+**~510 lines. Standard library only. Zero external dependencies.**
 
 ---
 
