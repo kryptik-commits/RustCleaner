@@ -380,6 +380,7 @@ def _clean_reg(dry: bool, interactive: bool):
 
 def _clean_gpu_wer_tasks(dry: bool, interactive: bool):
     if not _prompt("Clean GPU caches, WER reports, tasks?", interactive, dry): return
+    _localappdata = env_path("LOCALAPPDATA")
     gpu_subs = ["NVIDIA/GLCache","NVIDIA/DXCache","NVIDIA/ShaderCache","AMD/DxCache","AMD/DXCache","AMD/ShaderCache","Intel/GLCache","Intel/DXCache","Intel/ShaderCache","D3DSCache","D3DSCache/UserData"]
     for k in ("APPDATA","LOCALAPPDATA"):
         base = env_path(k)
